@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SignBridge Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">SignBridge</div>
+      <div class="top-actions">
+        <button id="startBtn" type="button">Start</button>
+        <button id="stopBtn" type="button">Stop</button>
+        <div class="live-badge">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span>LIVE</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="dashboard-grid">
+      <section class="panel webcam-panel">
+        <p class="panel-label">WEBCAM FEED - MediaPipe Skeleton Overlay</p>
+        <div class="webcam-placeholder">
+          <div class="crosshair"></div>
+        </div>
+      </section>
+
+      <section id="micPanel" class="panel mic-panel">
+        <p class="panel-label">MICROPHONE INPUT - Real-Time Audio</p>
+        <div class="mic-body">
+          <div class="recording-badge">
+            <span id="recordDot" class="record-dot"></span>
+            <span id="recordText">Stopped</span>
+          </div>
+          <div id="waveform" class="waveform" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <p id="listenText" class="listen-text">Stopped</p>
+          <p id="errorText" class="error-text"></p>
+        </div>
+      </section>
+
+      <section class="panel signs-panel">
+        <p class="panel-label">SIGNING - DETECTED SIGNS</p>
+        <div class="sign-row">
+          <span>HELLO</span>
+          <div class="bar"><div class="fill w1"></div></div>
+        </div>
+        <div class="sign-row">
+          <span>MY NAME</span>
+          <div class="bar"><div class="fill w2"></div></div>
+        </div>
+        <div class="sign-row">
+          <span>FINE</span>
+          <div class="bar"><div class="fill w3"></div></div>
+        </div>
+      </section>
+
+      <section class="panel transcript-panel">
+        <p class="panel-label">THEY SAID - LIVE TRANSCRIPT</p>
+        <div id="transcriptBox" class="transcript-box" aria-live="polite"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const micPanel = document.getElementById("micPanel");
+    const recordDot = document.getElementById("recordDot");
+    const recordText = document.getElementById("recordText");
+    const listenText = document.getElementById("listenText");
+    const errorText = document.getElementById("errorText");
+    const transcriptBox = document.getElementById("transcriptBox");
+
+    function setRecordingUI(recording) {
+      startBtn.disabled = recording;
+      stopBtn.disabled = !recording;
+      micPanel.classList.toggle("recording", recording);
+      recordDot.classList.toggle("active", recording);
+      recordText.textContent = recording ? "Recording..." : "Stopped";
+      listenText.textContent = recording ? "Listening for speech..." : "Stopped";
+    }
+
+    async function postJson(url) {
+      const res = await fetch(url, { method: "POST" });
+      if (!res.ok) throw new Error("Request failed");
+      return res.json();
+    }
+
+    function renderCaptions(lines) {
+      transcriptBox.textContent = "";
+      lines.forEach((line, idx) => {
+        const row = document.createElement("div");
+        row.className = "caption-line";
+        if (idx === lines.length - 1) row.classList.add("newest");
+        row.textContent = line;
+        transcriptBox.appendChild(row);
+      });
+      transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    }
+
+    async function pollLatest() {
+      try {
+        const res = await fetch("/api/latest", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const lines = Array.isArray(data.captions) ? data.captions : [];
+        setRecordingUI(Boolean(data.recording));
+        renderCaptions(lines);
+        errorText.textContent = "";
+      } catch (err) {
+        errorText.textContent = "Update failed.";
+      }
+    }
+
+    startBtn.addEventListener("click", async () => {
+      try {
+        const data = await postJson("/api/start");
+        setRecordingUI(Boolean(data.recording));
+        errorText.textContent = "";
+      } catch (err) {
+        errorText.textContent = "Could not start recording.";
+      }
+    });
+
+    stopBtn.addEventListener("click", async () => {
+      try {
+        const data = await postJson("/api/stop");
+        setRecordingUI(Boolean(data.recording));
+      } catch (err) {
+        errorText.textContent = "Could not stop recording.";
+      }
+    });
+
+    pollLatest();
+    setInterval(pollLatest, 400);
+  </script>
+</body>
+</html>
