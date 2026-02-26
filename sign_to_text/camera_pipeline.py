@@ -1,66 +1,88 @@
-#!pip install tensorflow==2.4.1 tensorflow-gpu==2.4.1 opencv-python mediapipe sklearn matplotlib
+
+#pip install torch torchvision transformers pillow opencv-python flask flask-socketio
 import cv2
+import torch
 import numpy as np
-import os
-from matplotlib import pyplot as plt
-import time
-import mediapipe as mp
+from PIL import Image
+from transformers import AutoFeatureExtractor, AutoModelForImageClassification
+#pip install torch torchvision transformers pillow opencv-python flask flask-socketio
+# ── LOAD PRETRAINED MODEL FROM HUGGINGFACE ───────────────────────────────────
+print("Loading model...")
+model_name = "dima806/sign-language-image-classification"
+extractor = AutoFeatureExtractor.from_pretrained(model_name)
+model = AutoModelForImageClassification.from_pretrained(model_name)
+model.eval()
+print("Model ready!")
 
-mp_holistic = mp.solutions.holistic # Holistic model
-mp_drawing = mp.solutions.drawing_utils # Drawing utilities
-def mediapipe_detection(image, model):
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) # COLOR CONVERSION BGR 2 RGB
-    image.flags.writeable = False                  # Image is no longer writeable
-    results = model.process(image)                 # Make prediction
-    image.flags.writeable = True                   # Image is now writeable 
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # COLOR COVERSION RGB 2 BGR
-    return image, results
-def draw_landmarks(image, results):
-    mp_drawing.draw_landmarks(image, results.face_landmarks, mp_holistic.FACE_CONNECTIONS) # Draw face connections
-    mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS) # Draw pose connections
-    mp_drawing.draw_landmarks(image, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS) # Draw left hand connections
-    mp_drawing.draw_landmarks(image, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS) # Draw right hand connections
-def draw_styled_landmarks(image, results):
-    # Draw face connections
-    mp_drawing.draw_landmarks(image, results.face_landmarks, mp_holistic.FACE_CONNECTIONS, 
-                             mp_drawing.DrawingSpec(color=(80,110,10), thickness=1, circle_radius=1), 
-                             mp_drawing.DrawingSpec(color=(80,256,121), thickness=1, circle_radius=1)
-                             ) 
-    # Draw pose connections
-    mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS,
-                             mp_drawing.DrawingSpec(color=(80,22,10), thickness=2, circle_radius=4), 
-                             mp_drawing.DrawingSpec(color=(80,44,121), thickness=2, circle_radius=2)
-                             ) 
-    # Draw left hand connections
-    mp_drawing.draw_landmarks(image, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS, 
-                             mp_drawing.DrawingSpec(color=(121,22,76), thickness=2, circle_radius=4), 
-                             mp_drawing.DrawingSpec(color=(121,44,250), thickness=2, circle_radius=2)
-                             ) 
-    # Draw right hand connections  
-    mp_drawing.draw_landmarks(image, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS, 
-                             mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=4), 
-                             mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2)
-                             ) 
-cap = cv2.VideoCapture(0)
-# Set mediapipe model 
-with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
-    while cap.isOpened():
+# Easy words we care about — filter to these only
+TARGET_SIGNS = ["hello", "yes", "no", "help", "please", "thanks", "sorry", "name", "where", "understand"]
 
-        # Read feed
-        ret, frame = cap.read()
+def predict_sign(frame):
+    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    inputs = extractor(images=img, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
+    top_prob, top_idx = probs.topk(1)
+    label = model.config.id2label[top_idx.item()].lower()
+    confidence = top_prob.item()
+    return label, confidence
 
-        # Make detections
-        image, results = mediapipe_detection(frame, holistic)
-        print(results)
-        
-        # Draw landmarks
-        draw_styled_landmarks(image, results)
+# ── WEBCAM LOOP ──────────────────────────────────────────────────────────────
+cap = cv2.VideoCapture(0)  # 0 = laptop webcam
 
-        # Show to screen
-        cv2.imshow('OpenCV Feed', image)
+current_sign = ""
+current_conf = 0.0
+frame_count = 0
 
-        # Break gracefully
-        if cv2.waitKey(10) & 0xFF == ord('q'):
-            break
-    cap.release()
-    cv2.destroyAllWindows()
+print("Press Q to quit")
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame_count += 1
+
+    # Run prediction every 10 frames (not every frame — keeps it smooth)
+    if frame_count % 10 == 0:
+        label, confidence = predict_sign(frame)
+        if confidence > 0.7:  # only show if confident
+            current_sign = label.upper()
+            current_conf = confidence
+        else:
+            current_sign = "..."
+            current_conf = 0.0
+
+    # ── DRAW UI OVERLAY ──────────────────────────────────────────────────────
+    h, w = frame.shape[:2]
+
+    # Dark overlay at bottom
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, h - 120), (w, h), (10, 10, 20), -1)
+    cv2.addWeighted(overlay, 0.8, frame, 0.2, 0, frame)
+
+    # Sign prediction text
+    cv2.putText(frame, current_sign, (20, h - 60),
+                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (20, 184, 166), 4)  # teal
+
+    # Confidence bar
+    if current_conf > 0:
+        bar_w = int((w - 40) * current_conf)
+        cv2.rectangle(frame, (20, h - 25), (20 + bar_w, h - 10), (20, 184, 166), -1)
+        cv2.rectangle(frame, (20, h - 25), (w - 20, h - 10), (60, 60, 60), 2)
+        cv2.putText(frame, f"{current_conf*100:.0f}%", (w - 70, h - 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+
+    # Top bar
+    cv2.rectangle(frame, (0, 0), (w, 40), (10, 10, 20), -1)
+    cv2.putText(frame, "SignBridge - Sign Detection", (10, 28),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    cv2.imshow("SignBridge", frame)
+
+    if cv2.waitKey(10) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
