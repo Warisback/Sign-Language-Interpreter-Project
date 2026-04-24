@@ -60,22 +60,3 @@ while cap.isOpened():
 
 cap.release()
 cv2.destroyAllWindows()
-```
-
----
-
-## Time breakdown for you:
-
-- **Data collection** — 2 mins per sign × 6 signs = **12 minutes**
-- **Training** — **~3-5 minutes** on CPU
-- **Done** — working real-time detector
-
-## Tips for good accuracy:
-- Film in the **same lighting** you'll demo in
-- Keep your hand **centred** in frame when collecting
-- Do signs slightly differently each time — vary the angle a tiny bit — so the model generalises
-- 50 images per sign is enough. Don't waste time doing more
-
-Just install first:
-```
-pip install tensorflow opencv-python numpy

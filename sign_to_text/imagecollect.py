@@ -1,8 +1,8 @@
 import cv2
 import os
 
-SIGNS = ["hello", "yes", "no", "help", "please", "thankyou"]
-IMAGES_PER_SIGN = 50  # takes about 2 mins total
+SIGNS = ["name", "no", "help", "thankyou"]
+IMAGES_PER_SIGN = 150  # takes about 2 mins total
 
 for sign in SIGNS:
     os.makedirs(f"data/{sign}", exist_ok=True)

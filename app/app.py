@@ -1,3 +1,7 @@
+import atexit
+import cv2
+import json
+import numpy as np
 import socket
 import threading
 import time
@@ -7,13 +11,20 @@ from datetime import datetime
 from pathlib import Path
 
 import speech_recognition as sr
-from flask import Flask, jsonify, render_template
+import tensorflow as tf
+from flask import Flask, Response, jsonify, render_template
 
 
 app = Flask(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TRANSCRIPT_PATH = REPO_ROOT / "speech_to_text" / "transcript.txt"
 MIC_DEVICE_INDEX = None  # Set to an integer to force a specific microphone.
+CAMERA_INDEX = 0
+MODEL_PATH = REPO_ROOT / "signbridge_model.h5"
+LABELS_PATH = REPO_ROOT / "labels.json"
+IMG_SIZE = 224
+PREDICT_EVERY_N_FRAMES = 10
+CONFIDENCE_THRESHOLD = 0.75
 
 
 state_lock = threading.Lock()
@@ -24,10 +35,114 @@ stop_event = threading.Event()
 listener_thread = None
 transcriber_thread = None
 audio_q = queue.Queue(maxsize=32)
+camera_lock = threading.Lock()
+camera = None
+model = None
+labels = {}
+current_sign = "..."
+current_conf = 0.0
+frame_count = 0
 
 
 def now_ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
+
+
+def load_sign_model() -> None:
+    global model, labels, current_sign
+    try:
+        model = tf.keras.models.load_model(str(MODEL_PATH))
+        with LABELS_PATH.open("r", encoding="utf-8") as f:
+            labels = json.load(f)
+        print(f"[{now_ts()}] Loaded sign model: {MODEL_PATH.name}")
+    except Exception as exc:
+        model = None
+        labels = {}
+        with state_lock:
+            current_sign = "MODEL ERROR"
+        print(f"[{now_ts()}] Sign model load failed: {exc}")
+
+
+def get_camera():
+    global camera
+    with camera_lock:
+        if camera is None or not camera.isOpened():
+            camera = cv2.VideoCapture(CAMERA_INDEX)
+            if not camera.isOpened():
+                raise RuntimeError("Could not open webcam")
+        return camera
+
+
+def release_camera() -> None:
+    global camera
+    with camera_lock:
+        if camera is not None:
+            camera.release()
+            camera = None
+
+
+def resolve_label(idx: int) -> str:
+    if isinstance(labels, list):
+        if 0 <= idx < len(labels):
+            return str(labels[idx])
+        return "..."
+    return str(labels.get(str(idx), labels.get(idx, "...")))
+
+
+def update_sign_prediction(frame: np.ndarray) -> None:
+    global frame_count, current_sign, current_conf
+    frame_count += 1
+
+    if frame_count % PREDICT_EVERY_N_FRAMES != 0:
+        return
+    if model is None:
+        return
+
+    img = cv2.resize(frame, (IMG_SIZE, IMG_SIZE))
+    img = img.astype("float32") / 255.0
+    img = np.expand_dims(img, axis=0)
+    pred = model.predict(img, verbose=0)
+    idx = int(np.argmax(pred[0]))
+    conf = float(pred[0][idx])
+
+    with state_lock:
+        if conf > CONFIDENCE_THRESHOLD:
+            current_sign = resolve_label(idx).upper()
+            current_conf = conf
+        else:
+            current_sign = "..."
+            current_conf = 0.0
+
+
+def draw_sign_overlay(frame: np.ndarray) -> None:
+    # Keep webcam feed clean; sign/confidence are shown in the dashboard panel.
+    return
+
+
+def generate_frames():
+    while True:
+        try:
+            cam = get_camera()
+            ok, frame = cam.read()
+            if not ok:
+                time.sleep(0.05)
+                continue
+
+            update_sign_prediction(frame)
+            draw_sign_overlay(frame)
+
+            ok, buffer = cv2.imencode(".jpg", frame)
+            if not ok:
+                continue
+
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n"
+            )
+        except GeneratorExit:
+            break
+        except Exception:
+            time.sleep(0.2)
 
 
 def append_transcript(line: str) -> None:
@@ -113,7 +228,7 @@ def transcriber_worker() -> None:
         try:
             audio = audio_q.get(timeout=0.5)
             text = r.recognize_google(audio, language="en-GB")
-            line = f"[{now_ts()}] {text}"
+            line = text
             append_transcript(line)
             add_caption(line)
             set_error(error="")
@@ -122,19 +237,16 @@ def transcriber_worker() -> None:
         except sr.UnknownValueError:
             continue
         except sr.RequestError as exc:
-            add_caption(f"[{now_ts()}] Speech API error: {exc}")
             set_error(error=f"Speech API error: {exc}")
             if is_transient_error(exc):
                 time.sleep(1.0)
                 continue
             time.sleep(0.5)
         except (ConnectionResetError, TimeoutError) as exc:
-            add_caption(f"[{now_ts()}] Connection issue: {exc}")
             set_error(error=f"Connection issue: {exc}")
             time.sleep(1.0)
             continue
         except OSError as exc:
-            add_caption(f"[{now_ts()}] Connection issue: {exc}")
             set_error(error=f"Connection issue: {exc}")
             time.sleep(1.0)
         except Exception as exc:
@@ -172,6 +284,11 @@ def print_microphones() -> None:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/video_feed")
+def video_feed():
+    return Response(generate_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/api/start", methods=["POST"])
@@ -225,9 +342,18 @@ def status():
 @app.route("/api/latest")
 def latest():
     with state_lock:
-        return jsonify({"recording": recording, "captions": list(captions)})
+        return jsonify(
+            {
+                "recording": recording,
+                "captions": list(captions),
+                "sign": current_sign,
+                "confidence": current_conf,
+            }
+        )
 
 
 if __name__ == "__main__":
     print_microphones()
+    load_sign_model()
+    atexit.register(release_camera)
     app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)

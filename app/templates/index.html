@@ -25,7 +25,8 @@
       <section class="panel webcam-panel">
         <p class="panel-label">WEBCAM FEED - MediaPipe Skeleton Overlay</p>
         <div class="webcam-placeholder">
-          <div class="crosshair"></div>
+          <img src="/video_feed" id="webcamStream" alt="Webcam stream">
+          <div class="crosshair" id="webcamCrosshair"></div>
         </div>
       </section>
 
@@ -47,16 +48,9 @@
       <section class="panel signs-panel">
         <p class="panel-label">SIGNING - DETECTED SIGNS</p>
         <div class="sign-row">
-          <span>HELLO</span>
-          <div class="bar"><div class="fill w1"></div></div>
-        </div>
-        <div class="sign-row">
-          <span>MY NAME</span>
-          <div class="bar"><div class="fill w2"></div></div>
-        </div>
-        <div class="sign-row">
-          <span>FINE</span>
-          <div class="bar"><div class="fill w3"></div></div>
+          <span id="signName">...</span>
+          <div class="bar"><div class="fill" id="signBar"></div></div>
+          <span id="signPct">0%</span>
         </div>
       </section>
 
@@ -76,6 +70,10 @@
     const listenText = document.getElementById("listenText");
     const errorText = document.getElementById("errorText");
     const transcriptBox = document.getElementById("transcriptBox");
+    const signName = document.getElementById("signName");
+    const signBar = document.getElementById("signBar");
+    const signPct = document.getElementById("signPct");
+    const webcamCrosshair = document.getElementById("webcamCrosshair");
 
     function setRecordingUI(recording) {
       startBtn.disabled = recording;
@@ -112,6 +110,13 @@
         const lines = Array.isArray(data.captions) ? data.captions : [];
         setRecordingUI(Boolean(data.recording));
         renderCaptions(lines);
+        const sign = typeof data.sign === "string" && data.sign.trim() ? data.sign : "...";
+        const conf = typeof data.confidence === "number" ? data.confidence : 0;
+        signName.textContent = sign.toUpperCase();
+        const pct = Math.round(Math.max(0, Math.min(conf, 1)) * 100);
+        signBar.style.width = `${pct}%`;
+        signPct.textContent = `${pct}%`;
+        webcamCrosshair.style.display = sign === "..." ? "block" : "none";
         errorText.textContent = "";
       } catch (err) {
         errorText.textContent = "Update failed.";

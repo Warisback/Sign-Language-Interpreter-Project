@@ -4,8 +4,9 @@ from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from tensorflow.keras.models import Model
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import numpy as np
+from pathlib import Path
 
-SIGNS = ["hello", "yes", "no", "help", "please", "thankyou"]
+SIGNS = ["name", "no", "help", "thankyou"]
 IMG_SIZE = 224
 
 # ── DATA LOADING ─────────────────────────────────────────────────────────────
@@ -20,6 +21,7 @@ datagen = ImageDataGenerator(
 
 train_data = datagen.flow_from_directory(
     "data/",
+    classes=SIGNS,
     target_size=(IMG_SIZE, IMG_SIZE),
     batch_size=16,
     class_mode="categorical",
@@ -28,6 +30,7 @@ train_data = datagen.flow_from_directory(
 
 val_data = datagen.flow_from_directory(
     "data/",
+    classes=SIGNS,
     target_size=(IMG_SIZE, IMG_SIZE),
     batch_size=16,
     class_mode="categorical",
@@ -35,6 +38,10 @@ val_data = datagen.flow_from_directory(
 )
 
 print("Classes:", train_data.class_indices)
+
+missing = [s for s in SIGNS if not Path("data", s).exists()]
+if missing:
+    raise ValueError(f"Missing class folders in data/: {missing}")
 
 # ── BUILD MODEL ───────────────────────────────────────────────────────────────
 base = MobileNetV2(weights="imagenet", include_top=False,
@@ -45,7 +52,7 @@ x = base.output
 x = GlobalAveragePooling2D()(x)
 x = Dense(128, activation="relu")(x)
 x = Dropout(0.3)(x)
-output = Dense(len(SIGNS), activation="softmax")(x)
+output = Dense(len(train_data.class_indices), activation="softmax")(x)
 
 model = Model(inputs=base.input, outputs=output)
 model.compile(optimizer="adam",

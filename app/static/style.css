@@ -118,12 +118,23 @@ button:disabled {
   place-items: center;
 }
 
+#webcamStream {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  display: block;
+}
+
 .crosshair {
   width: 78px;
   height: 78px;
   border-radius: 50%;
   border: 2px solid #3b587e;
-  position: relative;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .crosshair::before,
@@ -220,7 +231,7 @@ button:disabled {
 .sign-row {
   margin: 0.6rem 0;
   display: grid;
-  grid-template-columns: 95px 1fr;
+  grid-template-columns: 120px 1fr 52px;
   gap: 0.7rem;
   align-items: center;
   color: #d4ddec;
@@ -234,14 +245,12 @@ button:disabled {
 }
 
 .fill {
+  width: 0%;
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #2ec4b6 0%, #00b4d8 100%);
+  transition: width 0.2s ease;
 }
-
-.w1 { width: 83%; }
-.w2 { width: 61%; }
-.w3 { width: 74%; }
 
 .transcript-box {
   height: calc(100% - 1.6rem);

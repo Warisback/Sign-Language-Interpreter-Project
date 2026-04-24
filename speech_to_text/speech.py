@@ -83,7 +83,7 @@ def main():
             # Google Web Speech API (default in SpeechRecognition) with retries.
             text = recognize_with_retry(r, audio, language="en-GB")
 
-            line = f"[{now_ts()}] {text}"
+            line = text
             log_line(line, transcript_path)
 
         except sr.UnknownValueError:
