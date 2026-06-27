@@ -72,6 +72,5 @@ python app.py
 - Integrate text-to-speech for full accessibility  
 
 ## Contact
-Zeyad Salama  
-Email: ziadm202@gmail.com  
-GitHub: https://github.com/zeyad-Salama2  
+Zeyad Salama  Email: ziadm202@gmail.com  GitHub: https://github.com/zeyad-Salama2  
+Abdulmaleeq Yussuff Email: yussuffmalik2k6@gmail.com Github: https://github.com/Warisback
